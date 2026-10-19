@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Gravitational N-Body Physics Engine</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0f19;
+            color: #ffffff;
+            font-family: system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        canvas {
+            background-color: #050508;
+            border: 1px solid #1f293d;
+            border-radius: 8px;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.8);
+            cursor: crosshair;
+            touch-action: none;
+        }
+        .controls {
+            position: absolute;
+            top: 12px;
+            display: flex;
+            gap: 10px;
+            background: rgba(15, 23, 42, 0.9);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            border: 1px solid #334155;
+            z-index: 10;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:active { background: #1d4ed8; }
+        label { display: flex; align-items: center; gap: 6px; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <button onclick="resetSolarSystem()">Reset Preset</button>
+        <button onclick="clearCanvas()">Clear All</button>
+        <label>
+            Gravity Constant (G):
+            <input type="range" id="gSlider" min="0.1" max="5" step="0.1" value="1" oninput="updateG(this.value)">
+            <span id="gVal">1.0</span>
+        </label>
+    </div>
+
+    <canvas id="simCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = Math.min(window.innerWidth * 0.95, 800);
+            canvas.height = Math.min(window.innerHeight * 0.80, 600);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let G = 1.0;
+        let bodies = [];
+
+        function updateG(val) {
+            G = parseFloat(val);
+            document.getElementById('gVal').innerText = parseFloat(val).toFixed(1);
+        }
+
+        class Body {
+            constructor(x, y, vx, vy, mass, color, radius) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.mass = mass;
+                this.color = color;
+                this.radius = radius;
+                this.trail = [];
+            }
+
+            update() {
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > 60) this.trail.shift();
+
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                // Orbital Trail
+                ctx.beginPath();
+                for (let i = 0; i < this.trail.length; i++) {
+                    let p = this.trail[i];
+                    if (i === 0) ctx.moveTo(p.x, p.y);
+                    else ctx.lineTo(p.x, p.y);
+                }
+                ctx.strokeStyle = this.color;
+                ctx.globalAlpha = 0.25;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+
+                // Celestial Body
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+
+        function resetSolarSystem() {
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            bodies = [
+                new Body(cx, cy, 0, 0, 1200, '#f59e0b', 12),              // Central Star
+                new Body(cx, cy - 140, 2.3, 0, 15, '#38bdf8', 5),          // Earth
+                new Body(cx, cy - 152, 2.9, 0, 0.5, '#94a3b8', 2)          // Moon orbiting Earth
+            ];
+        }
+
+        function clearCanvas() {
+            bodies = [];
+        }
+
+        function computeForces() {
+            for (let i = 0; i < bodies.length; i++) {
+                let b1 = bodies[i];
+                let ax = 0, ay = 0;
+
+                for (let j = 0; j < bodies.length; j++) {
+                    if (i === j) continue;
+                    let b2 = bodies[j];
+
+                    let dx = b2.x - b1.x;
+                    let dy = b2.y - b1.y;
+                    let distSq = dx * dx + dy * dy + 120; // Softening parameter
+                    let dist = Math.sqrt(distSq);
+
+                    let force = (G * b2.mass) / distSq;
+                    ax += force * (dx / dist);
+                    ay += force * (dy / dist);
+                }
+
+                b1.vx += ax;
+                b1.vy += ay;
+            }
+        }
+
+        // Pointer interactions for mobile/touch
+        let isDragging = false;
+        let startX, startY, currentX, currentY;
+
+        canvas.addEventListener('pointerdown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            isDragging = true;
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            currentX = startX;
+            currentY = startY;
+        });
+
+        canvas.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            currentX = e.clientX - rect.left;
+            currentY = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('pointerup', (e) => {
+            if (!isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            let endX = e.clientX - rect.left;
+            let endY = e.clientY - rect.top;
+
+            let vx = (endX - startX) * 0.04;
+            let vy = (endY - startY) * 0.04;
+
+            bodies.push(new Body(startX, startY, vx, vy, 12, '#ec4899', 5));
+            isDragging = false;
+        });
+
+        resetSolarSystem();
+
+        function animate() {
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            computeForces();
+
+            for (let body of bodies) {
+                body.update();
+                body.draw();
+            }
+
+            // Aiming vector line while launching
+            if (isDragging) {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(currentX, currentY);
+                ctx.strokeStyle = '#ec4899';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
